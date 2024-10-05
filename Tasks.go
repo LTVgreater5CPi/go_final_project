@@ -1,146 +1,164 @@
 package main
 
 import (
+	"database/sql"
 	"encoding/json"
-	"fmt"
 	"net/http"
-
-	"strings"
 
 	"github.com/go-chi/chi/v5"
 )
 
 type Task struct {
-	ID          string `json:"id"`
-	Description string `json:"description,omitempty"`
-	Note        string `json:"note,omitempty"`
-	DateDead    string `json:"dateDead,omitempty"`
-	IsComplete  bool   `json:"isComplete"`
+	ID      int    `json:"id"`
+	Date    string `json:"date"`
+	Title   string `json:"title"`
+	Comment string `json:"comment,omitempty"`
+	Repeat  string `json:"repeat,omitempty"`
 }
 
-var tasks = map[string]Task{}
-
-func getTasks(w http.ResponseWriter, r *http.Request) {
-	var taskErray []Task
-	for _, task := range tasks {
-		taskErray = append(taskErray, task)
-	}
-	resp, err := json.Marshal(taskErray)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	// в заголовок записываем тип контента, у нас это данные в формате JSON
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
-}
-func getUnusedIDs() []string {
-	const maxID = 5
-	unusedIDs := make([]string, 0, maxID)
-	for i := 1; i <= maxID; i++ {
-		id := fmt.Sprintf("%d", i)
-		if _, exists := tasks[id]; !exists {
-			unusedIDs = append(unusedIDs, id)
-		}
-	}
-	return unusedIDs
-}
-func addTasks(w http.ResponseWriter, r *http.Request) {
+// Добавление новой задачи в базу данных
+func addTask(w http.ResponseWriter, r *http.Request) {
 	var task Task
 
 	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if _, idExist := tasks[task.ID]; idExist {
-		errMsg := fmt.Sprintf("Задача с id %s уже существует.", task.ID)
-		unusedIDs := getUnusedIDs()
-		if len(unusedIDs) > 0 {
-			errMsg += " Доступные ID: " + strings.Join(unusedIDs, ", ")
-		}
-		http.Error(w, errMsg, http.StatusBadRequest)
-		return
-	}
-	tasks[task.ID] = task
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(task)
 
-}
-func getTasksID(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	task, ok := tasks[id]
-	if !ok {
-		http.Error(w, "Такой задачи нет", http.StatusNoContent)
-		return
-	}
-	resp, err := json.Marshal(task)
+	stmt, err := db.Prepare("INSERT INTO scheduler (date, title, comment, repeat) VALUES (?, ?, ?, ?)")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(task.Date, task.Title, task.Comment, task.Repeat)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+}
+
+// Получение всех задач из базы данных, отсортированных по дате
+func getTasks(w http.ResponseWriter, r *http.Request) {
+	rows, err := db.Query("SELECT id, date, title, comment, repeat FROM scheduler ORDER BY date")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var tasks []Task
+	for rows.Next() {
+		var task Task
+		if err := rows.Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		tasks = append(tasks, task)
+	}
+
+	resp, err := json.Marshal(tasks)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
 }
-func deleteTasksID(w http.ResponseWriter, r *http.Request) {
+
+// Получение задачи по ID
+func getTaskByID(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	_, ok := tasks[id]
-	if !ok {
-		http.Error(w, "Такой задачи нет", http.StatusNotFound)
+	var task Task
+
+	err := db.QueryRow("SELECT id, date, title, comment, repeat FROM scheduler WHERE id = ?", id).
+		Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "Задача не найдена", http.StatusNotFound)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
-	delete(tasks, id)
+
+	resp, err := json.Marshal(task)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resp)
+}
+
+// Удаление задачи по ID
+func deleteTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	stmt, err := db.Prepare("DELETE FROM scheduler WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	w.WriteHeader(http.StatusOK)
 }
 
+// Обновление задачи по ID
 func updateTask(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	_, exists := tasks[id]
-	if !exists {
-		http.Error(w, "Задача не найдена", http.StatusNotFound)
-		return
-	}
+	var task Task
 
-	var updatedTask Task
-	if err := json.NewDecoder(r.Body).Decode(&updatedTask); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Обновление задачи
-	tasks[id] = updatedTask
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(updatedTask)
-}
+	stmt, err := db.Prepare("UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat = ? WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
 
-func completeTask(w http.ResponseWriter, r *http.Request) {
-	id := chi.URLParam(r, "id")
-	task, exists := tasks[id]
-	if !exists {
-		http.Error(w, "Задача не найдена", http.StatusNotFound)
+	_, err = stmt.Exec(task.Date, task.Title, task.Comment, task.Repeat, id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Отмечаем задачу как выполненную
-	task.IsComplete = true
-	tasks[id] = task
-
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(task)
 }
 
-func main() {
-	r := chi.NewRouter()
+// Отметка задачи как выполненной
+func completeTask(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
 
-	r.Get("/tasks", getTasks)
-	r.Post("/tasks", addTasks)
-	r.Get("/tasks/{id}", getTasksID)
-	r.Delete("/tasks/{id}", deleteTasksID)
-	r.Put("/tasks/{id}", updateTask)
-	r.Patch("/tasks/{id}/complete", completeTask)
-	Server()
+	stmt, err := db.Prepare("UPDATE scheduler SET repeat = 'completed' WHERE id = ?")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
