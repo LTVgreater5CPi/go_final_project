@@ -64,6 +64,7 @@ func Server() {
 
 	// Создаем маршрутизатор Chi для обработки API
 	r := chi.NewRouter()
+	r.Post("/api/task", handleTask)
 
 	// Регистрируем маршруты для API
 	r.Post("/tasks", addTask)
@@ -72,7 +73,7 @@ func Server() {
 	r.Delete("/tasks/{id}", deleteTask)
 	r.Put("/tasks/{id}", updateTask)
 	r.Patch("/tasks/{id}/complete", completeTask)
-
+	r.Get("/api/nextdate", handleNextDate)
 	// Обработчик для возврата статических файлов
 	fs := http.FileServer(http.Dir(webDir))
 	r.Handle("/*", fs)
