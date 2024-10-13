@@ -50,7 +50,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	case http.MethodPost:
 		tasks_service.AddTaskHandler(w, r, db)
 	case http.MethodGet:
-		tasks_service.TasksHandler(w, r, db)
+		tasks_service.GetTaskHandler(w, r, db)
 	case http.MethodPut:
 		tasks_service.EditTaskHandler(w, r, db)
 	case http.MethodDelete:

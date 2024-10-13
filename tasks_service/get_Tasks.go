@@ -10,31 +10,40 @@ import (
 )
 
 // ПОЛУЧЕНИЕ всех ЗАДАЧ
-func TasksHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+func GetTaskHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	id := r.URL.Query().Get("id")
-	search := r.URL.Query().Get("search")
+	if id == "" {
+		http.Error(w, `{"error":"Не указан id"}`, http.StatusBadRequest)
+		return
+	}
+	query := "SELECT id, date, title, comment, repeat FROM scheduler WHERE id = ?"
+	row := db.QueryRow(query, id)
 
+	var task Task
+	var taskID int
+	err := row.Scan(&taskID, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+	if err == sql.ErrNoRows {
+		http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"Ошибка поиска задачи: %s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	task.ID = strconv.Itoa(taskID)
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(task)
+}
+
+func TasksHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+
+	search := r.URL.Query().Get("search")
+	var tasks []Task
 	var query string
 	var args []interface{}
 
-	if id != "" {
-		query = "SELECT id, date, title, comment, repeat FROM scheduler WHERE id = ?"
-		args = append(args, id)
-		var task Task
-		if err := db.QueryRow(query, args...).Scan(&task.ID, &task.Date, &task.Title, &task.Comment, &task.Repeat); err == sql.ErrNoRows {
-			http.Error(w, `{"error":"Задача не найдена"}`, http.StatusNotFound)
-			return
-		} else if err != nil {
-			http.Error(w, fmt.Sprintf(`{"error":"Ошибка поиска: %s"}`, err.Error()), http.StatusInternalServerError)
-			return
-		}
-		json.NewEncoder(w).Encode(task)
-		return
-	}
-
-	// Если ID не указан, ищем список задач с возможностью поиска
 	if search != "" {
 		if searchDate, err := time.Parse("02.01.2006", search); err == nil {
 			query = "SELECT * FROM scheduler WHERE date = ? ORDER BY date LIMIT 50"
@@ -47,6 +56,7 @@ func TasksHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	} else {
 		query = "SELECT * FROM scheduler ORDER BY date LIMIT 50"
 	}
+
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		http.Error(w, fmt.Sprintf(`{"error":"Ошибка чтения БД: %s"}`, err.Error()), http.StatusInternalServerError)
@@ -54,16 +64,28 @@ func TasksHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 	defer rows.Close()
 
-	tasks := []Task{}
 	for rows.Next() {
 		var task Task
 		var id int
-		if err := rows.Scan(&id, &task.Date, &task.Title, &task.Comment, &task.Repeat); err != nil {
+		err := rows.Scan(&id, &task.Date, &task.Title, &task.Comment, &task.Repeat)
+		if err != nil {
 			http.Error(w, fmt.Sprintf(`{"error":"Ошибка чтения БД: %s"}`, err.Error()), http.StatusInternalServerError)
 			return
 		}
 		task.ID = strconv.Itoa(id)
 		tasks = append(tasks, task)
 	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"tasks": tasks})
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error":"Ошибка при обработке задач: %s"}`, err.Error()), http.StatusInternalServerError)
+		return
+	}
+	response := map[string]interface{}{
+		"tasks": tasks,
+	}
+	if len(tasks) == 0 {
+		response["tasks"] = []Task{}
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
 }

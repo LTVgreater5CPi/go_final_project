@@ -17,21 +17,17 @@ func EditTaskHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 		http.Error(w, `{"error":"Ошибка декодирования JSON"}`, http.StatusBadRequest)
 		return
 	}
-
 	if task.ID == "" || task.Title == "" {
 		http.Error(w, `{"error":"Не указан id или заголовок"}`, http.StatusBadRequest)
 		return
 	}
-
-	if task.Date == "" {
-		task.Date = time.Now().Format(dateFormat)
-	} else if _, err := time.Parse(dateFormat, task.Date); err != nil {
+	tDate, err := time.Parse(dateFormat, task.Date)
+	if err != nil {
 		http.Error(w, `{"error":"Неверный формат даты"}`, http.StatusBadRequest)
 		return
 	}
-
 	now := time.Now()
-	if tDate, _ := time.Parse(dateFormat, task.Date); tDate.Before(now) {
+	if tDate.Before(now) {
 		if task.Repeat == "" {
 			task.Date = now.Format(dateFormat)
 		} else {
