@@ -14,7 +14,7 @@ FROM ubuntu:latest
 WORKDIR /app
 
 COPY --from=builder /app/my_app /app/my_app
-COPY . .
+COPY ./web /app/web
 
 ENV TODO_PORT=7540
 ENV TODO_DBFILE=scheduler.db

@@ -27,7 +27,7 @@ func authMidW(next http.HandlerFunc) http.HandlerFunc {
 		}
 		cookie, err := r.Cookie("token")
 		if err != nil {
-			http.Error(w, "Неавторизован", http.StatusUnauthorized)
+			http.Error(w, "Not authorized", http.StatusUnauthorized)
 			return
 		}
 		tokenStr := cookie.Value
@@ -36,7 +36,7 @@ func authMidW(next http.HandlerFunc) http.HandlerFunc {
 		if _, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
 			return jwtKey, nil
 		}); err != nil {
-			http.Error(w, "Неавторизован", http.StatusUnauthorized)
+			http.Error(w, "ot authorized", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -68,17 +68,17 @@ func signInHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	}
 	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
-		http.Error(w, `{"error":"Ошибка декодирования JSON"}`, http.StatusBadRequest)
+		http.Error(w, `{"error":"JSON decoding error"}`, http.StatusBadRequest)
 		return
 	}
 	if appPassword == "" || creds.Password != appPassword {
-		http.Error(w, `{"error":"Неверный пароль"}`, http.StatusUnauthorized)
+		http.Error(w, `{"error":"Invalid password"}`, http.StatusUnauthorized)
 		return
 	}
 
 	tokenString, err := generateToken()
 	if err != nil {
-		http.Error(w, `{"error":"Ошибка генерации токена"}`, http.StatusInternalServerError)
+		http.Error(w, `{"error":"Token generation error"}`, http.StatusInternalServerError)
 		return
 	}
 	json.NewEncoder(w).Encode(map[string]string{"token": tokenString})
