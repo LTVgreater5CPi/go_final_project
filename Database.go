@@ -22,6 +22,7 @@ type Task struct {
 
 const dateFormat = "20060102"
 
+// Инициализация и создание БД
 func setupDB() (*sql.DB, error) {
 	dbPath := os.Getenv("TODO_DBFILE")
 	if dbPath == "" {
@@ -33,7 +34,7 @@ func setupDB() (*sql.DB, error) {
 	}
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
-		return nil, fmt.Errorf("error connecting to the DB: %v", err)
+		return nil, fmt.Errorf("error connecting to the DB: %w", err)
 	}
 
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
@@ -68,11 +69,21 @@ func AddTask(db *sql.DB, task Task) (int64, error) {
 // Обновляет данные задачи
 func UpdateTask(db *sql.DB, task Task) error {
 	query := `UPDATE scheduler SET date = ?, title = ?, comment = ?, repeat = ? WHERE id = ?`
-	_, err := db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.ID)
-	return err
+	result, err := db.Exec(query, task.Date, task.Title, task.Comment, task.Repeat, task.ID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return errors.New("no rows were updated, task not found")
+	}
+	return nil
 }
 
-// DУдаляем задачу по ID
+// Удаляем задачу по ID
 func DeleteTask(db *sql.DB, id string) error {
 	query := `DELETE FROM scheduler WHERE id = ?`
 	result, err := db.Exec(query, id)
@@ -123,7 +134,6 @@ func GetTasks(db *sql.DB, search string) ([]Task, error) {
 		return nil, err
 	}
 	defer rows.Close()
-
 	for rows.Next() {
 		var task Task
 		var id int
