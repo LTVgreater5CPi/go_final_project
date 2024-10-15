@@ -3,25 +3,17 @@ package main
 import (
 	"errors"
 	"fmt"
-	"net/http"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
 
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-func findNextMonth(curMonth int, months []int) int {
-	for _, month := range months {
-		if month >= curMonth {
-			return month
-		}
-	}
-	return months[0]
-}
+const DateFormat = "20060102"
 
-func isLeapYear(year int) bool {
-	return year%4 == 0 && (year%100 != 0 || year%400 == 0)
+// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+func lastDayOfMonth(year int, month time.Month) int {
+	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
 }
 
 func slicecontains[T comparable](slice []T, value T) bool {
@@ -33,34 +25,25 @@ func slicecontains[T comparable](slice []T, value T) bool {
 	return false
 }
 
-func lastDayOfMonth(year int, month time.Month) int {
-	return time.Date(year, month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+func findNextMonth(currentMonth int, months []int) int {
+	for _, month := range months {
+		if month >= currentMonth {
+			return month
+		}
+	}
+	return months[0]
 }
 
-// ОБРАБОТКА ПРАВИЛ ПОВТОРЕНИЯ
-func NextDateHandler(w http.ResponseWriter, r *http.Request) {
-	nowStr := r.FormValue("now")
-	dateStr := r.FormValue("date")
-	repeat := r.FormValue("repeat")
-
-	now, err := time.Parse(dateFormat, nowStr)
-	if err != nil {
-		http.Error(w, "invalid date format", http.StatusBadRequest)
-		return
-	}
-	nextDate, err := NextDate(now, dateStr, repeat)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	fmt.Fprint(w, nextDate)
+func isLeapYear(year int) bool {
+	return year%4 == 0 && (year%100 != 0 || year%400 == 0)
 }
 
+// Обработка правил переноса
 func NextDate(now time.Time, date string, repeat string) (string, error) {
 	if repeat == "" {
-		return "", errors.New("the repetition rule is empty")
+		return "", errors.New("repetition rule is empty")
 	}
-	taskDate, err := time.Parse(dateFormat, date)
+	taskDate, err := time.Parse(DateFormat, date)
 	if err != nil {
 		return "", fmt.Errorf("invalid date format: %v", err)
 	}
@@ -70,20 +53,19 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 	}
 
 	switch {
-	case strings.HasPrefix(repeat, "d "): //ежедневное повторение
+	case strings.HasPrefix(repeat, "d "):
 		daysStr := strings.TrimSpace(repeat[2:])
 		days, err := strconv.Atoi(daysStr)
 		if err != nil || days <= 0 || days > 400 {
-			return "", fmt.Errorf("incorrect repetition rule: %v", err)
+			return "", fmt.Errorf("invalid repetition rule 'd': %v", err)
 		}
 		taskDate = taskDate.AddDate(0, 0, days)
-
 		for taskDate.Before(now) {
 			taskDate = taskDate.AddDate(0, 0, days)
 		}
-		return taskDate.Format(dateFormat), nil
+		return taskDate.Format(DateFormat), nil
 
-	case repeat == "y": // ежегодное повторение
+	case repeat == "y":
 		for !taskDate.After(startDate) {
 			year := taskDate.Year() + 1
 			month := taskDate.Month()
@@ -95,21 +77,20 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 				taskDate = time.Date(year, month, day, 0, 0, 0, 0, taskDate.Location())
 			}
 		}
+		return taskDate.Format(DateFormat), nil
 
-		return taskDate.Format(dateFormat), nil
-
-	case strings.HasPrefix(repeat, "w "): //еженедельное повторение
+	case strings.HasPrefix(repeat, "w "):
 		daysStr := strings.TrimSpace(repeat[2:])
 		days := strings.Split(daysStr, ",")
 		if len(days) == 0 {
-			return "", fmt.Errorf("days are not specified")
+			return "", fmt.Errorf("invalid repetition rule 'w': days not specified")
 		}
 
 		var daysOfWeek []int
 		for _, dayStr := range days {
 			day, err := strconv.Atoi(dayStr)
 			if err != nil || day < 1 || day > 7 {
-				return "", fmt.Errorf("wrong day '%s'", dayStr)
+				return "", fmt.Errorf("invalid repetition rule 'w': invalid day '%s'", dayStr)
 			}
 			if day == 7 {
 				day = 0
@@ -127,20 +108,20 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 		for !slicecontains(daysOfWeek, int(startDate.Weekday())) || !(startDate.YearDay() > initialDate.YearDay()) {
 			startDate = startDate.AddDate(0, 0, 1)
 		}
-		return startDate.Format(dateFormat), nil
+		return startDate.Format(DateFormat), nil
 
-	case strings.HasPrefix(repeat, "m "): // ежемесячное повторение
+	case strings.HasPrefix(repeat, "m "):
 		parts := strings.Split(strings.TrimSpace(repeat[2:]), " ")
 
 		if len(parts) == 0 {
-			return "", fmt.Errorf("days are not specified")
+			return "", fmt.Errorf("invalid repetition rule 'm': days not specified")
 		}
 		dayParts := strings.Split(parts[0], ",")
 		var daysOfMonth []int
 		for _, dayStr := range dayParts {
 			day, err := strconv.Atoi(dayStr)
 			if err != nil || day == 0 || day < -2 || day > 31 {
-				return "", fmt.Errorf("wrong day '%s'", dayStr)
+				return "", fmt.Errorf("invalid repetition rule 'm': invalid day '%s'", dayStr)
 			}
 			daysOfMonth = append(daysOfMonth, day)
 		}
@@ -151,7 +132,7 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 			for _, monthStr := range monthParts {
 				month, err := strconv.Atoi(monthStr)
 				if err != nil || month < 1 || month > 12 {
-					return "", fmt.Errorf("wrong month '%s'", monthStr)
+					return "", fmt.Errorf("invalid repetition rule 'm': invalid month '%s'", monthStr)
 				}
 				months = append(months, month)
 			}
@@ -160,49 +141,47 @@ func NextDate(now time.Time, date string, repeat string) (string, error) {
 		sort.Ints(months)
 
 		for {
-			curYear, curMonth := taskDate.Year(), taskDate.Month()
+			currentYear, currentMonth := taskDate.Year(), taskDate.Month()
 
-			if len(months) > 0 && !slicecontains(months, int(curMonth)) {
-				nextMonth := findNextMonth(int(curMonth), months)
-				if nextMonth <= int(curMonth) {
-					taskDate = time.Date(curYear+1, time.Month(nextMonth), 1, 0, 0, 0, 0, taskDate.Location())
+			if len(months) > 0 && !slicecontains(months, int(currentMonth)) {
+				nextMonth := findNextMonth(int(currentMonth), months)
+				if nextMonth <= int(currentMonth) {
+					taskDate = time.Date(currentYear+1, time.Month(nextMonth), 1, 0, 0, 0, 0, taskDate.Location())
 				} else {
-					taskDate = time.Date(curYear, time.Month(nextMonth), 1, 0, 0, 0, 0, taskDate.Location())
+					taskDate = time.Date(currentYear, time.Month(nextMonth), 1, 0, 0, 0, 0, taskDate.Location())
 				}
 				continue
 			}
-			// Находим ближайшую допустимую дату в текущем месяце
-			var validDate time.Time
+
+			var needDate time.Time
 			for _, day := range daysOfMonth {
 				var candDate time.Time
-				lastDay := lastDayOfMonth(curYear, curMonth)
+				lastDay := lastDayOfMonth(currentYear, currentMonth)
 
 				if day > 0 {
 					if day <= lastDay {
-						candDate = time.Date(curYear, curMonth, day, 0, 0, 0, 0, taskDate.Location())
+						candDate = time.Date(currentYear, currentMonth, day, 0, 0, 0, 0, taskDate.Location())
 					} else {
 						continue
 					}
 				} else {
 					if -day <= lastDay {
-						candDate = time.Date(curYear, curMonth, lastDay+day+1, 0, 0, 0, 0, taskDate.Location())
+						candDate = time.Date(currentYear, currentMonth, lastDay+day+1, 0, 0, 0, 0, taskDate.Location())
 					} else {
 						continue
 					}
 				}
-				// Находим ближайшую дату после startDate
-				if candDate.After(startDate) && (validDate.IsZero() || candDate.Before(validDate)) {
-					validDate = candDate
+				if candDate.After(startDate) && (needDate.IsZero() || candDate.Before(needDate)) {
+					needDate = candDate
 				}
 			}
-			if !validDate.IsZero() {
-				return validDate.Format(dateFormat), nil
+			if !needDate.IsZero() {
+				return needDate.Format(DateFormat), nil
 			}
-			// Если не найдено допустимой даты в текущем месяце, переходим к следующему месяцу
 			taskDate = taskDate.AddDate(0, 1, 0)
 			taskDate = time.Date(taskDate.Year(), taskDate.Month(), 1, 0, 0, 0, 0, taskDate.Location())
 		}
 	default:
-		return "", fmt.Errorf("unsupported rule: '%s'", repeat)
+		return "", fmt.Errorf("unsupported repetition rule format: '%s'", repeat)
 	}
 }

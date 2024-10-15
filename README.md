@@ -1,5 +1,3 @@
-# Файлы для итогового задания
-
 1) В директории `tests` находятся тесты для проверки API, которое должно быть реализовано в веб-сервере: 
 go test -run ^TestDB$ ./tests
 go test -run ^TestNextDate$ ./tests
@@ -9,6 +7,7 @@ go test -run ^TestEditTask$ ./tests
 go test -run ^TestDone$ ./tests
 go test -run ^TestDelTask$ ./tests
 Запуск всех тестов - go test ./tests
+go test ./tests -count=1
 
 2) Директория `web` содержит файлы фронтенда.
 

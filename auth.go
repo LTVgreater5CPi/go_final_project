@@ -55,8 +55,8 @@ func generateToken() (string, error) {
 	return token.SignedString(jwtKey)
 }
 
-// Обработчик для /api/signin
-func signInHandler(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+// Handler для /api/signin
+func signInH(w http.ResponseWriter, r *http.Request, db *sql.DB) {
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 
 	if r.Method != http.MethodPost {
